@@ -88,14 +88,15 @@ metrics_file: metrics.json
 thresholds:
   track_score: 0.0
 
-# --- Kaggle submission (node/edge lineage graph, not a single target column) ---
-# The submission is a long CSV: `row_type` ∈ {node, edge}. `id_col` below is only
-# used by kitchen's column/row validation against sample_submission.csv.
-# NOTE: confirm the actual submission mechanism (code competition vs CSV upload)
-# before relying on `kitchen submit` — see BACKLOG (SUBMIT-VERIFY).
+# --- Kaggle submission (node/edge lineage graph) ---
+# This is a CODE COMPETITION: submit a Notebook (internet off, <=12h) that writes
+# `submission.csv`. `kitchen submit`/API upload is NOT used here. The block below
+# only feeds kitchen's local column/row validation against sample_submission.csv.
+# Required columns: id,dataset,row_type,node_id,t,z,y,x,source_id,target_id
+# (`id` = required throwaway consecutive index).
 submission:
   id_col: id
   target_col: row_type          # placeholder; graph submissions have no single target
   sample_submission: sample_submission.csv
   message: "v2 precision baseline (starter.ipynb)"
-  # competition: biohub-cell-tracking-during-development  # uncomment only if CSV upload is allowed
+  # NO `competition:` key — do not enable API upload (notebook-only submission).

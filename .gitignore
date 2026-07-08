@@ -41,3 +41,8 @@ submission.csv
 
 # os
 .DS_Store
+
+# cell-tracking eval env + data
+.venv-track/
+data/train/
+data/test/
