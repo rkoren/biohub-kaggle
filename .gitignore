@@ -1,0 +1,43 @@
+# secrets
+.env
+
+# data
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# ml artifacts
+mlruns/
+mlruns.db
+*.pkl
+*.joblib
+*.ubj
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+
+# notebooks
+.ipynb_checkpoints/
+
+# outputs
+metrics.json
+submissions/
+
+# infra (generated)
+infra/tf/
+
+# working backlog (kept local, per project convention)
+BACKLOG.md
+
+# cell-tracking data / artifacts
+*.zarr/
+data/ground_truth/
+submission.csv
+
+# os
+.DS_Store

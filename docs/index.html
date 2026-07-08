@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>biohub-cell-tracking &mdash; Results Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; background: #f9fafb; color: #111; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    #chart-wrap { max-width: 860px; margin-bottom: 2rem; }
+    table { border-collapse: collapse; width: 100%; max-width: 860px; font-size: 0.875rem; }
+    th, td { padding: 0.35rem 0.75rem; border: 1px solid #e2e8f0; text-align: left; }
+    th { background: #f1f5f9; }
+    tr.champion { background: #fef9c3; font-weight: 600; }
+    #status { color: #6b7280; margin-bottom: 1rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>biohub-cell-tracking &mdash; Results Dashboard</h1>
+  <p id="status">Loading&hellip;</p>
+  <div id="chart-wrap"><canvas id="chart"></canvas></div>
+  <table>
+    <thead>
+      <tr><th>SHA</th><th>Timestamp</th><th>Run ID</th><th>LB Score</th><th>&#916; LB</th><th>Metrics</th></tr>
+    </thead>
+    <tbody id="runs-body"></tbody>
+  </table>
+  <script>
+    (function () {
+      var loc = window.location;
+      var owner = loc.hostname.split('.')[0];
+      var repo = loc.pathname.replace(/^\//, '').split('/')[0] || 'biohub-cell-tracking';
+      var apiUrl = 'https://api.github.com/repos/' + owner + '/' + repo + '/contents/results?ref=results';
+
+      function fmtTime(ts) {
+        return ts ? new Date(ts).toLocaleString() : '';
+      }
+
+      function fmtMetrics(m) {
+        return Object.keys(m).sort().map(function (k) { return k + ': ' + m[k]; }).join(', ');
+      }
+
+      fetch(apiUrl)
+        .then(function (r) {
+          if (!r.ok) { throw new Error('HTTP ' + r.status + ' — is the results branch pushed?'); }
+          return r.json();
+        })
+        .then(function (files) {
+          if (!Array.isArray(files)) { throw new Error('Unexpected API response'); }
+          var jsonFiles = files.filter(function (f) { return f.name.endsWith('.json'); });
+          document.getElementById('status').textContent = 'Fetching ' + jsonFiles.length + ' result(s)\u2026';
+          return Promise.all(jsonFiles.map(function (f) {
+            return fetch(f.download_url).then(function (r) { return r.json(); });
+          }));
+        })
+        .then(function (runs) {
+          runs.sort(function (a, b) { return a.timestamp < b.timestamp ? -1 : 1; });
+          document.getElementById('status').textContent = runs.length + ' run(s) loaded.';
+
+          // Show LB Score chart and columns only when at least one run has an lb_score.
+          // For non-Kaggle projects (or before any submission), fall back to the first
+          // numeric local metric so the chart remains useful.
+          var hasLbScore = runs.some(function (r) {
+            return r.lb_score !== null && r.lb_score !== undefined;
+          });
+
+          var chartLabel, chartData, showLegend;
+          if (hasLbScore) {
+            chartLabel = 'LB Score';
+            chartData = runs.map(function (r) { return r.lb_score; });
+            showLegend = false;
+          } else {
+            var metricKey = null;
+            runs.forEach(function (r) {
+              if (metricKey) { return; }
+              var m = r.metrics || {};
+              Object.keys(m).sort().forEach(function (k) {
+                if (!metricKey && typeof m[k] === 'number') { metricKey = k; }
+              });
+            });
+            if (metricKey) {
+              chartLabel = metricKey;
+              chartData = runs.map(function (r) {
+                var v = (r.metrics || {})[metricKey];
+                return typeof v === 'number' ? v : null;
+              });
+              showLegend = true;
+            } else {
+              document.getElementById('chart-wrap').style.display = 'none';
+              chartLabel = null;
+              chartData = [];
+              showLegend = false;
+            }
+          }
+
+          if (chartLabel) {
+            var ctx = document.getElementById('chart').getContext('2d');
+            new Chart(ctx, {
+              type: 'line',
+              data: {
+                labels: runs.map(function (r) { return r.sha.slice(0, 8); }),
+                datasets: [{
+                  label: chartLabel,
+                  data: chartData,
+                  borderColor: '#3b82f6',
+                  backgroundColor: 'rgba(59,130,246,0.08)',
+                  tension: 0.2,
+                  spanGaps: true
+                }]
+              },
+              options: { responsive: true, plugins: { legend: { display: showLegend } } }
+            });
+          }
+
+          // Hide LB Score and Δ LB header columns when no LB data is present.
+          if (!hasLbScore) {
+            var headerCells = document.querySelectorAll('thead tr th');
+            [3, 4].forEach(function (i) {
+              if (headerCells[i]) { headerCells[i].style.display = 'none'; }
+            });
+          }
+
+          var champ = runs.find(function (r) { return r.champion; });
+
+          var tbody = document.getElementById('runs-body');
+          runs.forEach(function (run) {
+            var tr = document.createElement('tr');
+            if (run.champion) { tr.className = 'champion'; }
+
+            [
+              run.sha.slice(0, 8),
+              fmtTime(run.timestamp),
+              run.run_id || ''
+            ].forEach(function (val) {
+              var td = document.createElement('td');
+              td.textContent = val;
+              tr.appendChild(td);
+            });
+
+            if (hasLbScore) {
+              var lbTd = document.createElement('td');
+              lbTd.textContent = run.lb_score !== null && run.lb_score !== undefined
+                ? run.lb_score : '\u2014';
+              tr.appendChild(lbTd);
+
+              var deltaTd = document.createElement('td');
+              if (run.champion) {
+                deltaTd.textContent = '\u2605';
+              } else if (
+                champ &&
+                champ.lb_score !== null && champ.lb_score !== undefined &&
+                run.lb_score !== null && run.lb_score !== undefined
+              ) {
+                var delta = run.lb_score - champ.lb_score;
+                deltaTd.textContent = (delta >= 0 ? '+' : '') + delta.toFixed(4);
+                deltaTd.style.color = delta >= 0 ? '#16a34a' : '#dc2626';
+              } else {
+                deltaTd.textContent = '\u2014';
+              }
+              tr.appendChild(deltaTd);
+            }
+
+            var metricsTd = document.createElement('td');
+            metricsTd.textContent = fmtMetrics(run.metrics || {});
+            tr.appendChild(metricsTd);
+
+            tbody.appendChild(tr);
+          });
+        })
+        .catch(function (err) {
+          document.getElementById('status').textContent = 'Error: ' + err.message;
+        });
+    })();
+  </script>
+</body>
+</html>

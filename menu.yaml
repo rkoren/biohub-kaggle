@@ -1,0 +1,101 @@
+# Unified project manifest (menu.yaml) — the single source of truth the platform reads.
+#
+# NOTE ON PROJECT SHAPE
+# ---------------------
+# This is a 3D+time cell-tracking competition (computer vision → lineage graph),
+# NOT tabular ML. The working solution currently lives in `starter.ipynb`. kitchen
+# is used here as the config + experiment-tracking + submission harness:
+#   * every tuning knob below is a first-class, sweepable parameter (log to MLflow)
+#   * `submission` mirrors the node/edge graph format, not a single target column
+# Modularizing the notebook into `src/` stages (detect → track → submit → evaluate)
+# and wiring a local metric so `kitchen run` / `kitchen sweep` work end-to-end is
+# tracked in BACKLOG.md (CV-MODULARIZE, EVAL-LOCAL). Until then, `pipeline` /
+# `recipes` stages below are placeholders and `kitchen run <stage>` is not yet live.
+
+project: biohub-cell-tracking
+region: us-east-1
+experiment: biohub-cell-tracking
+
+# Placeholder pipeline — stages are not implemented yet (notebook-first). See BACKLOG.
+pipeline: [track]
+
+recipes:
+  # --- stages (project code) — TODO: extract from starter.ipynb (CV-MODULARIZE) ---
+  track:
+    kind: stage
+    source: src/track/run.py   # not yet created; run pipeline via starter.ipynb for now
+
+  # --- infra (deploy on demand with `recipes apply menu.yaml`; not in the default pipeline) ---
+  biohub-cell-tracking-data:
+    kind: s3
+    versioning: true
+
+data:
+  source: kaggle
+  competition: biohub-cell-tracking-during-development
+  # ~199 zarr chunks (~900 MB) of test volumes; no labeled train set is shipped.
+
+# Metric scale: micrometers per voxel (Z, Y, X). The evaluation matches centroids
+# by physical distance, so every distance knob below is in micrometers.
+scale:
+  z: 1.625
+  y: 0.40625
+  x: 0.40625
+
+# --- Detection knobs (starter.ipynb "v2_precision" profile defaults) ---
+detect:
+  profile: v2_precision
+  xy_ds: 4                 # XY block-mean factor: 4*0.40625 ≈ 1.625 µm → isotropic with Z
+  smooth_sigma: 0.95
+  min_peak_dist: 3
+  thresh_rel: 0.34         # relative-rise threshold fraction of dynamic range
+  min_rel_contrast: 0.08
+  nms_radius_um: 2.65      # physical duplicate suppression radius
+  border_z: 1
+  border_yx: 2
+  border_keep_quantile: 0.70
+  # Frame-to-frame count stabilizer (cuts extreme explosions only)
+  max_frame_count_mult: 1.70
+  max_frame_count_add: 45
+  max_nodes_per_frame: 20000
+
+# --- Linking (frame-to-frame Hungarian assignment in physical space) ---
+link:
+  max_link_dist_um: 11.0
+
+# --- Conservative mitosis / division pass ---
+divisions:
+  enabled: true
+  parent_dist_um: 8.75
+  sister_dist_um: 6.25
+  min_count_gain: 1
+
+# --- Node pruning (adjusted edge-Jaccard rewards removing isolated detections) ---
+prune:
+  isolated_nodes: true
+  keep_strong_isolated: false
+  strong_isolated_quantile: 0.97
+
+mlflow:
+  tracking_uri: sqlite:///mlruns.db
+
+run_name: v2-precision-baseline
+metrics_file: metrics.json
+
+# Primary metric = the competition's adjusted edge-Jaccard tracking score.
+# Public baseline from starter.ipynb ≈ 0.581. Threshold is a placeholder until a
+# LOCAL metric exists (EVAL-LOCAL); set a real floor once we can score offline.
+thresholds:
+  track_score: 0.0
+
+# --- Kaggle submission (node/edge lineage graph, not a single target column) ---
+# The submission is a long CSV: `row_type` ∈ {node, edge}. `id_col` below is only
+# used by kitchen's column/row validation against sample_submission.csv.
+# NOTE: confirm the actual submission mechanism (code competition vs CSV upload)
+# before relying on `kitchen submit` — see BACKLOG (SUBMIT-VERIFY).
+submission:
+  id_col: id
+  target_col: row_type          # placeholder; graph submissions have no single target
+  sample_submission: sample_submission.csv
+  message: "v2 precision baseline (starter.ipynb)"
+  # competition: biohub-cell-tracking-during-development  # uncomment only if CSV upload is allowed

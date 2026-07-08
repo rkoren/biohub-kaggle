@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "biohub-cell-tracking"
+version = "0.1.0"
+description = "Kaggle biohub-cell-tracking — built on kitchen"
+requires-python = ">=3.11"
+dependencies = [
+    "rkoren-kitchen>=1.0.2",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ipykernel>=6.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]
