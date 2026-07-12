@@ -46,6 +46,38 @@ stronger model still has recall headroom.
 os.environ["BIOHUB_DET_THRESHOLD"] = "0.95"
 ```
 
+## Tuning-notebook config ladder (run in `blend09_tuning.ipynb`, held-out-train CV, FREE)
+
+After the veto miss (raw-path loop mis-called it), test EVERYTHING here first. Rule: a config earns a
+submission only if it **beats the baseline anchor's held-out-train CV**. Paste into the experiment cell,
+Run All, read the CV at the bottom. Order by thesis strength:
+
+- **T0 · Baseline anchor** — no overrides. Establishes the blend's held-out-train CV (the reference).
+  Also a calibration check: does it land near the 0.90 test LB, or lower?
+- **T1 · det=0.95** *(re-inference)* — the fork (WITH postproc) wanted lower det; blend anchors 0.97.
+  `os.environ["BIOHUB_DET_THRESHOLD"]="0.95"`
+- **T2 · Tighter gaps: max_gap=1** — the veto carnage (~2000 bad gap midpoints) hints the blend's dt=2
+  gap-closes are noisy; dt=1 may be cleaner without needing a veto.
+  `os.environ["BIOHUB_GAP_CLOSE_MAX_GAP"]="1"`
+- **T3 · Veto SAFE-DIV only** — the *gap* veto was the disaster (2000 rejects); vetoing only the rare
+  divisions is targeted and low-volume. Attach the deepcenter dataset.
+  `os.environ["BIOHUB_USE_DEEPCENTER_VETO"]="1"; os.environ["BIOHUB_DEEPCENTER_GAP_VETO"]="0"; os.environ["BIOHUB_DEEPCENTER_SAFE_DIV_VETO"]="1"`
+- **T4 · Learned-edge bonus 1.10** — the blend's stated probing axis (anchors 0.90); nudge up.
+  `os.environ["BIOHUB_MOTION_RELINK_LEARNED_BONUS"]="1.10"`
+- **T5 · min_track_len=8** — dense learned predictions may want more short-track filtering (blend=6).
+  `os.environ["BIOHUB_OUTPUT_MIN_TRACK_LEN"]="8"`
+
+```
+T0 baseline anchor:   train-CV = ____   (vs LB baseline 0.900)
+T1 det=0.95:          train-CV = ____
+T2 max_gap=1:         train-CV = ____
+T3 veto safe-div:     train-CV = ____
+T4 learned_bonus 1.1: train-CV = ____
+T5 min_track=8:       train-CV = ____
+```
+
+---
+
 ### Shot 5 — Aggressive short-track filter  *(local-sweep hint; postproc)*
 Local sweep on learned geffs: dense learned predictions like *more* filtering (min_track_len 6→8 gained;
 4 hurt — opposite of our sparse classical output).
