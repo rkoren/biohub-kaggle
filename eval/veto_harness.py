@@ -22,9 +22,12 @@ import postprocess as P
 import deepcenter as DC
 import sweep_postproc as SW
 
-PREDS = _HERE.parent / "gpu_preds_local"
-DATA = _HERE.parent / "data" / "train"
-DC_CKPT = Path.home() / "biohub-deepcenter-unet3d-center-prior-v1" / "weights" / "full_frame_center" / "best.pt"
+import os
+PREDS = Path(os.environ.get("BIOHUB_PREDS_DIR", str(_HERE.parent / "gpu_preds_local")))
+DATA = Path(os.environ.get("BIOHUB_DATA_DIR", str(_HERE.parent / "data" / "train")))
+DC_CKPT = Path(os.environ.get("BIOHUB_DEEPCENTER_CKPT",
+                              str(Path.home() / "biohub-deepcenter-unet3d-center-prior-v1" / "weights" / "full_frame_center" / "best.pt")))
+DC_DEVICE = os.environ.get("BIOHUB_DEVICE", "cpu")
 
 # (label, gap_threshold, div_threshold) — None thresholds => veto OFF
 CONFIGS = [
@@ -40,7 +43,7 @@ def main() -> None:
     assert DC_CKPT.exists(), f"DeepCenter checkpoint not found: {DC_CKPT}"
     preds = SW.load_predictions(PREDS)
     print(f"loaded {len(preds)} learned geffs; loading DeepCenter model ...", flush=True)
-    bundle = DC.load(DC_CKPT, device="cpu")
+    bundle = DC.load(DC_CKPT, device=DC_DEVICE)
 
     base = None
     for label, gap_thr, div_thr in CONFIGS:

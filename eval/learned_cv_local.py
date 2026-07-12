@@ -30,8 +30,19 @@ import sweep_postproc as SW
 
 K = td.DEFAULT_ATTR_KEYS
 HELDOUT = ["44b6_0b24845f", "44b6_1574802b", "44b6_267148e4", "44b6_3bb3690f", "44b6_40c45f5a"]
-DATA_DIR = Path("data/train")
-OUT_DIR = Path("gpu_preds_local"); OUT_DIR.mkdir(exist_ok=True)
+DATA_DIR = Path(os.environ.get("BIOHUB_DATA_DIR", "data/train"))
+OUT_DIR = Path(os.environ.get("BIOHUB_OUT_DIR", "gpu_preds_local")); OUT_DIR.mkdir(exist_ok=True)
+
+
+def pick_device():
+    want = os.environ.get("BIOHUB_DEVICE")
+    if want:
+        return torch.device(want)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 def graph_to_dfs(g):
@@ -46,7 +57,7 @@ def graph_to_dfs(g):
 
 
 def main() -> None:
-    dev = torch.device(os.environ.get("BIOHUB_DEVICE", "cpu"))
+    dev = pick_device()
     max_frames = int(os.environ["BIOHUB_MAX_FRAMES"]) if os.environ.get("BIOHUB_MAX_FRAMES") else None
     model, ws, ds = P.load_model(PACK / "weights/unet_transformer/split_0/edge_predictor_best.pth", dev)
     cfg = P.PredictConfig()

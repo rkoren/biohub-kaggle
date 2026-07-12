@@ -30,13 +30,17 @@ from local_eval import load_gt, build_pred_graph, _score_pair, summarise
 
 K = td.DEFAULT_ATTR_KEYS
 HELDOUT = ["44b6_0b24845f", "44b6_1574802b", "44b6_267148e4", "44b6_3bb3690f", "44b6_40c45f5a"]
-DATA = Path("data/train")
+DATA = Path(os.environ.get("BIOHUB_DATA_DIR", "data/train"))
 THRS = [float(x) for x in os.environ.get("BIOHUB_DET_LIST", "0.5,0.90,0.95,0.97,0.99").split(",")]
 
 
 def pick_device() -> torch.device:
-    want = os.environ.get("BIOHUB_DEVICE", "mps")
-    if want == "mps" and torch.backends.mps.is_available():
+    want = os.environ.get("BIOHUB_DEVICE")
+    if want:
+        return torch.device(want)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
 
