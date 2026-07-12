@@ -1,0 +1,16 @@
+[
+  {"label": "pilkwang-defaults", "overrides": {}},
+  {"label": "gap2-on", "overrides": {"OUTPUT_GAP2_RECOVERY": true}},
+  {"label": "div-geom-filter-on", "overrides": {"OUTPUT_DIVISION_GEOMETRY_FILTER": true}},
+  {"label": "gap2+divgeom", "overrides": {"OUTPUT_GAP2_RECOVERY": true, "OUTPUT_DIVISION_GEOMETRY_FILTER": true}},
+  {"label": "min_track_len=8", "overrides": {"OUTPUT_MIN_TRACK_LEN": 8}},
+  {"label": "min_track_len=4", "overrides": {"OUTPUT_MIN_TRACK_LEN": 4}},
+  {"label": "single-child-repair-on", "overrides": {"OUTPUT_SINGLE_CHILD_REPAIR": true}},
+  {"label": "motion_vel=0.35", "overrides": {"MOTION_RELINK_VELOCITY_WEIGHT": 0.35}},
+  {"label": "motion_vel=0.65", "overrides": {"MOTION_RELINK_VELOCITY_WEIGHT": 0.65}},
+  {"label": "motion_bonus=1.0", "overrides": {"MOTION_RELINK_LEARNED_BONUS": 1.0}},
+  {"label": "gap_close_um=7", "overrides": {"GAP_CLOSE_UM": 7.0}},
+  {"label": "safe_div_sister=8.5", "overrides": {"SAFE_DIV_SISTER_MAX_UM": 8.5}},
+  {"label": "linefit_win=3", "overrides": {"OUTPUT_LINEFIT_WINDOW": 3}},
+  {"label": "gap2+min8+divgeom", "overrides": {"OUTPUT_GAP2_RECOVERY": true, "OUTPUT_MIN_TRACK_LEN": 8, "OUTPUT_DIVISION_GEOMETRY_FILTER": true}}
+]

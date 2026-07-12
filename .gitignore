@@ -33,6 +33,7 @@ infra/tf/
 
 # working backlog (kept local, per project convention)
 BACKLOG.md
+docs/kt
 
 # cell-tracking data / artifacts
 *.zarr/
@@ -42,7 +43,31 @@ submission.csv
 # os
 .DS_Store
 
-# cell-tracking eval env + data
+# cell-tracking eval env
 .venv-track/
 data/train/
 data/test/
+
+# offline kaggle wheels
+wheels/
+
+# CellTrack Studio prediction geffs (generated from submission CSVs)
+predictions/
+
+# GPU-start runtime prediction outputs
+gpu_preds/
+notebooks/gpu-start/gpu_preds/
+
+# local learned-CV / sweep outputs (generated geffs)
+gpu_preds_local/
+gpu_preds_local_det*/
+
+# external reference notebooks (CC0, reproducible via `kaggle kernels pull`) — keep only our READMEs
+notebooks/**/pilkwang_*_reference/*.ipynb
+notebooks/**/pilkwang_*_reference/kernel-metadata.json
+notebooks/**/pilkwang_*_reference/cells/
+notebooks/**/pilkwang_*_reference/support_pack_README.md
+
+# generated one-off viz
+notebooks/task_overview.html
+notebooks/**/submission.csv

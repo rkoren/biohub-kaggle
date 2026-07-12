@@ -45,10 +45,11 @@ scale:
 # --- Detection knobs (starter.ipynb "v2_precision" profile defaults) ---
 detect:
   profile: v2_precision
-  xy_ds: 4                 # XY block-mean factor: 4*0.40625 ≈ 1.625 µm → isotropic with Z
+  xy_ds: 2                 # XY block-mean factor. Was 4 (starter); 2 localizes better and COMPOUNDS
+                           # with ILP linking (dev-subset 0.556→0.621). Sweep refining further.
   smooth_sigma: 0.95
   min_peak_dist: 3
-  thresh_rel: 0.34         # relative-rise threshold fraction of dynamic range
+  thresh_rel: 0.30         # relative-rise threshold. Sweep: 0.26–0.34 all ~tied under ILP; 0.30 = safe pick
   min_rel_contrast: 0.08
   nms_radius_um: 2.65      # physical duplicate suppression radius
   border_z: 1
@@ -59,9 +60,17 @@ detect:
   max_frame_count_add: 45
   max_nodes_per_frame: 20000
 
-# --- Linking (frame-to-frame Hungarian assignment in physical space) ---
+# --- Linking ---
+# method: greedy (per-frame Hungarian) | ilp (global, tracksdata — needs tracksdata+pyscipopt;
+# offline-installable via a wheel dataset). ILP > greedy on the harness; finer detection COMPOUNDS
+# with ILP (dev-subset: greedy@xy4 0.534 → ilp@xy4 0.556 → ilp@xy2 0.621). Best config TBD by sweep.
 link:
+  method: ilp
   max_link_dist_um: 11.0
+  n_neighbors: 6
+  ilp_appearance: 0.1
+  ilp_disappearance: 0.1
+  ilp_division: 1.0
 
 # --- Conservative mitosis / division pass ---
 divisions:
@@ -86,7 +95,7 @@ metrics_file: metrics.json
 # Public baseline from starter.ipynb ≈ 0.581. Threshold is a placeholder until a
 # LOCAL metric exists (EVAL-LOCAL); set a real floor once we can score offline.
 thresholds:
-  track_score: 0.0
+  track_score: 0.60          # best classical config (xy2/thr0.30/ILP) = 0.648 dev-subset; guard regressions
 
 # --- Kaggle submission (node/edge lineage graph) ---
 # This is a CODE COMPETITION: submit a Notebook (internet off, <=12h) that writes

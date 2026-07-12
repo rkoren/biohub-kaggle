@@ -19,9 +19,9 @@ from .config import PipelineConfig
 
 
 def ilp_link(node_rows: list[dict], cfg: PipelineConfig,
-             n_neighbors: int = 6,
+             n_neighbors: int = 6, delta_t: int = 1,
              appearance: float = 0.1, disappearance: float = 0.1,
-             division: float = 1.0) -> list[dict]:
+             division: float = 1.0, timeout: float | None = 600.0) -> list[dict]:
     """Return edge rows (source_id/target_id over node_rows' node_id) chosen by ILP.
 
     node_rows: dicts with node_id, t, z, y, x (voxel). Distance is computed in
@@ -50,7 +50,7 @@ def ilp_link(node_rows: list[dict], cfg: PipelineConfig,
     td.edges.DistanceEdges(
         distance_threshold=cfg.max_link_dist_um,
         n_neighbors=n_neighbors,
-        delta_t=1,
+        delta_t=delta_t,   # >1 adds gap-closing candidate edges (bridge missed detections)
     ).add_edges(g)
 
     if g.num_edges() == 0:
@@ -68,6 +68,7 @@ def ilp_link(node_rows: list[dict], cfg: PipelineConfig,
         appearance_weight=appearance,
         disappearance_weight=disappearance,
         division_weight=division,
+        timeout=timeout,   # bound solve time for the offline 12h budget
     )
     solved = solver.solve(g)
     if solved is None:

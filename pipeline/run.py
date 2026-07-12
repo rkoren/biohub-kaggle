@@ -55,7 +55,7 @@ def run_dataset(zarr_path: str | Path, dataset: str, cfg: PipelineConfig,
             node_rows.append(sub.node_row(dataset, nid, t, zyx))
             node_scores[int(nid)] = float(sc)
 
-        if t > 0:
+        if t > 0 and cfg.link_method == "greedy":
             links = link_frames(prev_ids, prev_xyz, curr_ids, coords, cfg)
             for s, u in links:
                 edge_rows.append(sub.edge_row(dataset, s, u))
@@ -66,6 +66,13 @@ def run_dataset(zarr_path: str | Path, dataset: str, cfg: PipelineConfig,
         frame_counts.append(len(coords))
         if verbose and ((t + 1) % 20 == 0 or t == T - 1):
             print(f"    frame {t+1:>3}/{T}: nodes={len(coords):>4} edges={len(edge_rows):>5}")
+
+    if cfg.link_method == "ilp":
+        from .link_ilp import ilp_link
+        edge_rows = ilp_link(node_rows, cfg, n_neighbors=cfg.link_n_neighbors,
+                             delta_t=cfg.link_delta_t,
+                             appearance=cfg.ilp_appearance, disappearance=cfg.ilp_disappearance,
+                             division=cfg.ilp_division)
 
     before = (len(node_rows), len(edge_rows))
     node_rows, edge_rows, pstats = prune_isolated(node_rows, edge_rows, node_scores, cfg)

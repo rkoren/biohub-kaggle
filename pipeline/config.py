@@ -31,6 +31,13 @@ class PipelineConfig:
 
     # --- linking ---
     max_link_dist_um: float = 11.0
+    link_method: str = "greedy"       # "greedy" (Hungarian) | "ilp" (global, tracksdata)
+    link_n_neighbors: int = 6         # candidate neighbours per node for ILP
+    link_delta_t: int = 1             # ILP gap-closing: also link t→t+Δ (Δ>1 bridges missed detections)
+    ilp_appearance: float = 0.1
+    ilp_disappearance: float = 0.1
+    ilp_division: float = 1.0
+    ilp_timeout: float = 600.0        # per-dataset ILP solve timeout (s) — guards the 12h budget
 
     # --- divisions ---
     detect_divisions: bool = True
@@ -69,6 +76,13 @@ class PipelineConfig:
             max_frame_count_add=d.get("max_frame_count_add", 45),
             max_nodes_per_frame=d.get("max_nodes_per_frame", 20000),
             max_link_dist_um=lk.get("max_link_dist_um", 11.0),
+            link_method=lk.get("method", "greedy"),
+            link_n_neighbors=lk.get("n_neighbors", 6),
+            link_delta_t=lk.get("delta_t", 1),
+            ilp_appearance=lk.get("ilp_appearance", 0.1),
+            ilp_disappearance=lk.get("ilp_disappearance", 0.1),
+            ilp_division=lk.get("ilp_division", 1.0),
+            ilp_timeout=lk.get("ilp_timeout", 600.0),
             detect_divisions=dv.get("enabled", True),
             div_parent_dist_um=dv.get("parent_dist_um", 8.75),
             div_sister_dist_um=dv.get("sister_dist_um", 6.25),

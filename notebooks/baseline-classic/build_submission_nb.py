@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 import nbformat as nbf
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 PKG = ROOT / "pipeline"
 
 
@@ -196,6 +196,6 @@ code(RUN)
 nb["cells"] = cells
 nb["metadata"] = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
                   "language_info": {"name": "python"}}
-out = ROOT / "notebooks" / "02_submission_baseline.ipynb"
+out = ROOT / "notebooks" / "baseline-classic" / "02_submission_baseline.ipynb"
 nbf.write(nb, out)
 print("wrote", out)
