@@ -65,11 +65,28 @@ os.environ["BIOHUB_GAP_CLOSE_UM"] = "5.0"
 ---
 ```
 shot 0 (baseline):         LB = 0.900  ✓ (16th, tied ~100)
-shot 1 (veto full):        LB = ____   ← the differentiator
-shot 1 (veto full):        LB = ____
-shot 2 (veto gap-only):    LB = ____
-shot 3 (learned_bonus 1.1):LB = ____
+shot 1 (veto full):        LB = 0.893  ✗ (−0.007; veto HURTS the blend)
+shot 2 (veto gap-only):    LB = ____   (diagnostic only — expect ≈0.893; skippable, see verdict)
+shot 3 (learned_bonus 1.1):LB = ____   ← NEXT (highest-EV, veto-independent)
+shot 6 (gap_close 5.0µm):  LB = ____   ← then this
 shot 4 (det 0.95):         LB = ____
 ```
-Read the pattern: if the veto helps, precision-of-repairs is the lever → tune its thresholds
-(`BIOHUB_DEEPCENTER_GAP_THRESHOLD` / `_SAFE_DIV_THRESHOLD`). If det 0.95 helps, sweep it finer.
+
+### VERDICT on the veto (2026-07-12) — retire it
+Shot 1 = **0.893 (−0.007)**. The veto is a precision gate, and on the strong blend (D4 TTA + association
+ranker) the base repairs are already high-precision, so the gate only rejects *good* gap-close bridges —
+gap-close is the main edge-recall lever. Corroborating evidence: (a) **pilkwang built the veto, wired it,
+and shipped it OFF** = a designer's confirmed-neutral/negative lever, not "untapped headroom" as we'd
+framed it; (b) our local `veto_harness` said +0.0046 but the LB says −0.007 → **the harness sign-flipped**,
+so don't trust more local veto sweeps; (c) divisions are ~0.1× and 56% of videos have none, so the
+safe-div half of the veto can't move the score — the −0.007 is the **gap-veto** rejecting real bridges.
+- **Don't** run div-only (gap off, veto on) — by the same logic it just restates ≈0.900.
+- **Shot 2 (gap-only)** is *diagnostic only*: expect ≈0.893 (confirms gap-veto is the culprit). Skip it
+  unless a blend-log check shows the safe-div veto vetoed a *meaningful* number of candidates in the 0.893
+  run (if it did, div contribution isn't ~0 and Shot 2 becomes informative). Otherwise go straight to Shot 3.
+
+### Next bets (veto-independent)
+- **Shot 3** — `MOTION_RELINK_LEARNED_BONUS=1.10`: the ladder's real axis (more weight to the learned ranker
+  inside motion assignment). Highest EV.
+- **Shot 6** — `GAP_CLOSE_UM=5.0`: also a precision gate on gap-close, but filters on *geometry* (cleaner
+  learned links tolerate a tighter gate), NOT a 2nd model's heatmap → not the same failed lever as the veto.
