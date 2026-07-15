@@ -302,13 +302,19 @@ DUMP_SIDECARS = os.environ.get("BIOHUB_DUMP_SIDECARS", "0") != "0"
 DUMP_THRESHOLD = float(os.environ.get("BIOHUB_DUMP_THRESHOLD", "0.02"))
 
 
-def _write_sidecars(output_dir: Path, name: str, dump_edges: list, node_emb: dict) -> None:
+def _write_sidecars(output_dir: Path, name: str, dump_edges: list, node_emb: dict, raw_dump: list = ()) -> None:
     if dump_edges:
         pl.DataFrame(
             {"source_id": [e[0] for e in dump_edges],
              "target_id": [e[1] for e in dump_edges],
              "edge_prob": [e[2] for e in dump_edges]}
         ).write_parquet(output_dir / f"{name}.candidates.parquet")
+    if raw_dump:
+        pl.DataFrame(
+            {"source_id": [e[0] for e in raw_dump],
+             "target_id": [e[1] for e in raw_dump],
+             "raw_logit": [e[2] for e in raw_dump]}
+        ).write_parquet(output_dir / f"{name}.rawlogits.parquet")
     if node_emb:
         ids = np.array(sorted(node_emb), dtype=np.int64)
         emb = np.stack([node_emb[int(i)] for i in ids]).astype(np.float32)
@@ -366,6 +372,7 @@ def predict_video(
     all_edges: list[tuple[int, int, float, float]] = []
     dump_edges: list[tuple[int, int, float]] = []   # fork: all pairs > DUMP_THRESHOLD (src,tgt,prob)
     node_emb: dict[int, np.ndarray] = {}            # fork: gi -> 32ch appearance vector (first occurrence)
+    raw_dump: list[tuple[int, int, float]] = []     # fork: top-K sources per target by RAW pre-softmax logit
 
     # Sliding windows with stride W-1 cover every consecutive pair exactly once.
     stride = max(W - 1, 1)
@@ -491,6 +498,12 @@ def predict_video(
             if DUMP_SIDECARS:
                 for _i, _j in np.argwhere(probs > DUMP_THRESHOLD):
                     dump_edges.append((int(idx_src[_i]), int(idx_tgt[_j]), float(probs[_i, _j])))
+                # raw pre-softmax logits: top-K sources per target (the model's true source ranking per target)
+                _rawnp = raw.detach().cpu().numpy()
+                _K = min(8, _rawnp.shape[0])
+                for _j in range(_rawnp.shape[1]):
+                    for _i in np.argsort(-_rawnp[:, _j])[:_K]:
+                        raw_dump.append((int(idx_src[_i]), int(idx_tgt[_j]), float(_rawnp[_i, _j])))
 
             candidates = sorted(
                 [
@@ -529,7 +542,7 @@ def predict_video(
     coords = coords.astype(np.float32)
     coords[:, 1:] *= ds_arr
     coords = coords.astype(np.int16)
-    return coords, all_edges, dump_edges, node_emb
+    return coords, all_edges, dump_edges, node_emb, raw_dump
 
 
 # =============================================================================
@@ -579,7 +592,7 @@ def predict(
 
     for name in tqdm(test_names, desc="Predicting", disable=not INTERACTIVE):
         ds_path = data_dir / name
-        coords, edges, dump_edges, node_emb = predict_video(
+        coords, edges, dump_edges, node_emb, raw_dump = predict_video(
                 model, ds_path, device,
                 cfg=cfg,
                 window_size=window_size,
@@ -587,8 +600,9 @@ def predict(
                 downsample=downsample,
             )
         if DUMP_SIDECARS:
-            _write_sidecars(output_dir, name, dump_edges, node_emb)
-            print(f"  [sidecars] {name}: {len(dump_edges)} candidate probs, {len(node_emb)} node embeddings", flush=True)
+            _write_sidecars(output_dir, name, dump_edges, node_emb, raw_dump)
+            print(f"  [sidecars] {name}: {len(dump_edges)} cand probs, {len(node_emb)} embeddings, "
+                  f"{len(raw_dump)} raw logits", flush=True)
         graph = build_graph(coords, edges)
         if cfg.use_ilp and graph.num_edges() > 0:
             solver = td.solvers.ILPSolver(

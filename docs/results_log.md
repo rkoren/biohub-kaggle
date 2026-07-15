@@ -121,6 +121,39 @@ Compared error edges to correct edges on the two linking-failure axes (crowding 
   is killed at candidate-gen or ILP selection, upstream of all postproc — the ranker under-scores large-`rel`
   edges. Fix needs a displacement-agnostic signal (appearance re-link Rung 4, or retrain Rung 6), not knobs.
 
+## Phase 2 fork resolution (v12, 2026-07-14) — the ranker is BLIND to fast-motion edges
+Instrumented re-predict dumped candidate probs + appearance embeddings (`pipeline/predict_instrumented.py`,
+`eval/candidate_probe.py`). For the 60 category-C misses:
+- **prob(correct) ≈ 0: 98% below the 0.02 dump floor, 0% cleared the 0.5 gate, median 0.000.** The ranker
+  scores the correct far edge near-zero (large `rel` → out-of-distribution).
+- The taken distractor edge is ALSO ~0 prob — it exists only because `motion_relink` built it on geometry
+  (nearest-within-gate), not because the ranker liked it.
+- **⇒ No upstream selection/ILP/bonus fix is possible — the ranker signal is zero.** Recovery needs a
+  displacement-agnostic signal: appearance re-link (Rung 4, embeddings dumped) or retrain (Rung 6).
+- **Appearance re-link (Rung 4) is DEAD too** (`eval/appearance_probe.py`): raw 32-ch UNet embeddings do NOT
+  separate the correct partner. Control on 113,910 easy adjacent links: cos(source,linked) 0.930 =
+  cos(source,random) 0.930 → **linked>random exactly 50% (chance)**. Embedding std 0.28 (real variance, not
+  degenerate) but it tracks local image context, not cell identity — they're the detector's features, not a
+  re-ID fingerprint. For the 60 misses, cos(correct) even < cos(random). No appearance re-link can recover them.
+
+## rel-ZERO ranker probe (v13) — the ranker's LEARNED space is blind too, not just the rel penalty
+Re-ran inference with the ranker's displacement term (`rel`) zeroed (env-gated patch to
+`simple_node_transformer.py:193`), dumped rel-zeroed candidate probs. `candidate_probe` on the 60 misses:
+**identical to rel-ON — prob(correct) median 0.000, 98% below floor, 1/48 ranks correct>distractor.** So the
+learned appearance-attention itself has no signal for fast-motion partners; the `rel` term wasn't the culprit.
+The last cheaper-than-retrain avenue (re-rank on the ranker's learned metric) is now closed too.
+
+## ⇒ CHEAP POSTPROC ON THIS CHECKPOINT is capped (~0.901-0.902). Retrain is the leading path to 0.91.
+Every downstream signal to recover the fast-motion steal *using the 50ep checkpoint's outputs* is exhausted:
+softmax prob ≈ 0, constant-velocity 1/28, track-continuation 1/48, raw appearance cosine = chance. So no postproc
+knob (gap-confirm, motion-margin, local-spacing, keep-fallback, gate tuning) passes ~0.901 — matching the
+"dozens of 0.90 tuners, no public 0.91" landscape. **Caveats (advisor):** (a) prob≈0 is softmax-over-sources
+output; with ~50 candidate sources per target, per-source prob floors near 1/50 ≈ 0.02 = our dump floor, so this
+may be a floor artifact — the RAW pre-softmax logit ranking is the real test (pending). (b) We tested the
+*trained* checkpoint's features (raw `_index_features`), not the architecture's capacity when trained on hard
+positives. So "retrain" is the leading path (large-displacement positives / window>2 / loss reweighting), to be
+gated by a cheap 5-epoch fine-tune probe, NOT a proven necessity. Postproc bank (gap-confirm+competitor) ~0.902.
+
 ## Dead ends (don't retry)
 - Raw-path local loop (det=0.5, no TTA/ranker) — mis-called det AND veto direction; superseded by `blend09_tuning`.
 - Classical ILP pipeline capped ~0.72 LB.
