@@ -21,19 +21,28 @@ TALLY = Path(__file__).resolve().parent.parent / "docs" / "gpu_tally.txt"
 
 
 def fetch_log(ref: str) -> Path:
-    """`ref` is a kernel slug (owner/name) → download its output, return the .log path."""
+    """`ref` is a kernel slug (owner/name) → fetch JUST the execution log (not the heavy output files).
+
+    Uses `kaggle kernels logs` (prints to stdout), NOT `kaggle kernels output` — the latter downloads
+    every output file (predicted geffs, cloned repos, gigabytes) and resets the connection before the log.
+    """
     d = Path(tempfile.mkdtemp(prefix="kaggle_log_"))
-    subprocess.run(["kaggle", "kernels", "output", ref, "-p", str(d)],
-                   capture_output=True, text=True, check=True)
-    logs = list(d.glob("*.log"))
-    if not logs:
-        sys.exit(f"no .log in output of {ref}")
-    return logs[0]
+    out = d / "run.log"
+    for attempt in range(3):  # tolerate transient CLI/network errors
+        r = subprocess.run(["kaggle", "kernels", "logs", ref], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            out.write_text(r.stdout)
+            return out
+    sys.exit(f"could not fetch logs for {ref}: {r.stderr.strip()[:200]}")
 
 
 def parse(log_path: Path):
     """Return (records, max_time_seconds). Each record = (stream, text)."""
     raw = log_path.read_text(errors="replace")
+    # the outdated-CLI "Warning: ..." line prints to stdout before the JSON array — slice from the first '['
+    b = raw.find("[")
+    if b > 0:
+        raw = raw[b:]
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
