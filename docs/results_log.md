@@ -143,6 +143,13 @@ Re-ran inference with the ranker's displacement term (`rel`) zeroed (env-gated p
 learned appearance-attention itself has no signal for fast-motion partners; the `rel` term wasn't the culprit.
 The last cheaper-than-retrain avenue (re-rank on the ranker's learned metric) is now closed too.
 
+## raw-logit rank probe (v14) — NOT a softmax artifact: the model is genuinely blind
+Dumped top-8 sources per target by RAW pre-softmax logit (`eval/rawlogit_probe.py`). For the 60 misses, the
+true source is **ABSENT from the correct target's top-8 in 97%** (rank-1 in only 1/60). The model ranks 7+ wrong
+sources above the true parent — so `prob(correct)≈0` was real signal absence, not softmax-floor dilution. Rules
+out any cheap re-rank/threshold/selection fix. **Retrain (Rung 6) confirmed as the only path**, gated by a
+5-epoch fine-tune probe (does prob(correct)/true-source-rank move off the floor? yes→full retrain, no→window>2).
+
 ## ⇒ CHEAP POSTPROC ON THIS CHECKPOINT is capped (~0.901-0.902). Retrain is the leading path to 0.91.
 Every downstream signal to recover the fast-motion steal *using the 50ep checkpoint's outputs* is exhausted:
 softmax prob ≈ 0, constant-velocity 1/28, track-continuation 1/48, raw appearance cosine = chance. So no postproc
