@@ -161,6 +161,79 @@ may be a floor artifact — the RAW pre-softmax logit ranking is the real test (
 positives. So "retrain" is the leading path (large-displacement positives / window>2 / loss reweighting), to be
 gated by a cheap 5-epoch fine-tune probe, NOT a proven necessity. Postproc bank (gap-confirm+competitor) ~0.902.
 
+## Overnight submission prepared (2026-07-15): competitor 0.902 config in OUR pipeline
+`blend09_submit.ipynb` → submission kernel `rkoren/biohub-blend-submissions` **V7** = our gap-confirm (0.901) +
+the competitor's two tweaks ported verbatim + env-gated ON:
+- **motion-margin calibration** (relaxed-pass cost discount for high-confidence unambiguous matches)
+- **local-spacing division gate** (adaptive sister-distance by local density: reject if sister_dist/max(2.4,
+  median-3NN) > 2.35) — the axis that gave the competitor 0.902.
+Ported cleanly (same pilkwang base, `_position_um`/loop vars all matched; stat keys seeded via setdefault since
+our `stats` is a plain dict). Preflight OK (offline-safe, writes submission.csv). NOT runtime-tested (the offline
+run is the test). Flags off → reproduces V6 0.901 (zero-risk fallback). USER runs the kernel + submits.
+
+## Retrain (Rung 6) — frame-skip fine-tune probe (in progress)
+`pipeline/train_frameskip.py` (fork) + `notebooks/blend-09/blend09_retrain.ipynb` (kernel `rkoren/biohub-blend-retrain`).
+Adds (t,t+k) frame-skip windows with k-step lineage positives → 6-8µm large-displacement examples (the miss range),
+resumes the 50ep checkpoint, fine-tunes, then predict+profile the retrained model on held-out.
+- **Smoke test PASSED end-to-end** (batch=2 fits T4; batch=16 OOMs): frame-skip fires (+42..79 windows/video),
+  checkpoint resumes (0 missing keys), trains, saves, predict uses retrained weights + dumps sidecars. ~1.4s/iter.
+- **Probe config:** 80 train videos, 4 epochs, 1500 iters/epoch, lr 2e-4 (~2.5-3hr; full 194×5ep would be 20hr+).
+- **The gate (advisor):** after fine-tune, does `rawlogit_probe`/`candidate_probe` show the true source lift off
+  the floor for the 60 misses? ANY movement (even prob 0.1 / rank into top-8) → architecture CAN learn it → full
+  retrain warranted. Still flat → features can't carry it → escalate to window>2 temporal context.
+- **RESULT (v3, 80vid/4ep/prob0.5/lr2e-4, 138min train): FAILED on both axes.**
+  - Gate NEGATIVE: retrained model's fast-motion misses still have true source 99% ABSENT from top-8 (0% rank-1) —
+    identical to base. Frame-skip did NOT teach the association.
+  - Model DEGRADED: held-out CV 0.856→0.820, FN 60→72, FP 110→126, test recall 0.925→0.911 across epochs.
+  - Likely mechanism: appearance features are non-discriminative (proven), so frame-skip only taught "large `rel`
+    is possible" WITHOUT a cue for WHICH far cell is correct → floods FP, doesn't recover recall. Confounded by
+    likely catastrophic forgetting (80-video subset vs full 194) + aggressive frame-skip prob=0.5.
+  - ⚠ BUT the gate is CONFOUNDED — the fine-tune was broken (best score was epoch 0, degrading after = a
+    fine-tune destroying a converged checkpoint), so "architecture can't learn it" is NOT yet established.
+    Coherent-but-degraded output (eJ 0.816, not garbage) rules OUT a weight-corruption save/load bug → genuine
+    training degradation from config: lr=2e-4 too high for a resumed 50ep model, frameskip_prob=0.5 too aggressive,
+    80-video subset → catastrophic forgetting (base saw all 194).
+- **Corrected run (v4, overnight):** lr 2e-4→**1e-5**, frameskip_prob 0.5→**0.15**, N_TRAIN 80→**150**, MAX_ITERS
+  1000, 4ep. **Two-part success criterion:** (a) held-out CV holds near base 0.856 (training doesn't destroy the
+  model) AND (b) rank-1 rate on retrained misses > 0 (any fast-motion signal). If (a) holds & (b)=0 → the REAL
+  "features can't carry it" verdict → escalate to window>2 temporal context. If (a) fails → still misconfigured.
+  - **RESULT (v4): (a) PASSED, (b) FAINT POSITIVE — the approach works, needs more training.** Training healthy
+    (epoch-0 recall 0.9586 vs broken-run 0.9244; stable after). Retrained CV baseline **0.8606 > base 0.8561**;
+    misses 60→54, FP 110→99, eJ 0.847→0.8575. Fast-motion true-source rank moved off the floor: **in top-8 2%→11%**
+    (6/54), candidate>distractor 2%→4% (rank-1 still 0% → not yet selected). ⇒ architecture IS starting to learn
+    fast-motion assoc; scale the retrain (more epochs / full 194 videos / prob 0.15→~0.25), NOT window>2.
+  - ⚠ This checkpoint NOT submission-worthy: retrained+gap-confirm 0.8609 CV < base+gap-confirm 0.8652 (gap-confirm
+    stacks worse on it). Proof-of-concept, not a finished model — the signal is the trajectory, not this score.
+  - **LIKE-FOR-LIKE OVERLAP CHECK (advisor, GPU-free — the aggregate hid the real signal):** tracked the base's
+    exact 60 linking-limited misses (by GT edge tuple) into the retrained model. **24/60 (40%) are now RECOVERED
+    (TP)** — frame-skip genuinely fixed 40% of the specific fast-motion misses. Net was only −6 because the retrain
+    also introduced ~18 NEW misses (regressions on other edges). So the approach WORKS (40% targeted recovery), but
+    trades recall gains for precision regressions → net ~flat so far. ⇒ REAL greenlight to scale/refine the retrain,
+    but the blocker is regressions, not "can it learn." Also: gap-confirm doesn't stack on the retrained model
+    (0.8609 vs 0.8652) → postproc must be RE-TUNED for the new error profile before comparing to the 0.901 champion.
+  - **Open path:** stronger/gentler retrain (full 194 videos ↓forgetting-regressions, more epochs ↑recovery,
+    prob~0.2) + re-tune postproc. Uncertain if it NET-beats 0.901; each run ~2.5-5hr. Decision: keep investing vs
+    bank the proof-of-concept. Regression/recall tradeoff may need distillation (preserve base's correct edges).
+
+## Retrain trajectory (v4→v5) — the path CONVERGES but hits a regression tax
+Refined run v5 (194 videos, 6ep, prob0.20, lr1e-5, 134min train): training HEALTHY (best recall climbed
+0.9487→0.9541 across epochs). Trajectory on the SAME 60 base misses (overlap check) + authoritative sweep CV:
+
+| run | baseline CV | best postproc | recovered/60 | new regressions | net-linking |
+|---|---|---|---|---|---|
+| base | 0.8561 | gap-confirm 0.8652 | — | — | — |
+| v4 (gentle) | 0.8606 | 0.8609 | 24 (40%) | 19 | +5 |
+| **v5 (refined)** | **0.8644** | **keepfb 0.8714** | **29 (48%)** | **30** | −1 |
+
+**Verdict: converging with headroom, but precision is now the wall.** Recovery climbs (40→48% on the exact same
+misses) and CV climbs monotonically; **v5+keepfb 0.8714 crosses the champion's 0.8652 for the first time**
+(+0.0062 CV; ~+0.001 LB after attenuation → maybe 0.902-0.903). BUT regressions grow FASTER than recovery
+(19→30), so naive "more epochs" has diminishing net returns. **Next lever = regression control, not more
+training: distillation** (fine-tune with frame-skip while penalizing divergence from the base's correct edges) to
+add fast-motion capability without unlearning correct edges. gap-confirm still doesn't stack on retrained (0.8512);
+keepfb is the retrained model's best postproc (re-tune postproc per checkpoint). Decision: commit a focused
+distillation-iteration block vs bank v5+keepfb as a candidate submission (CV-beats champion, marginal).
+
 ## Dead ends (don't retry)
 - Raw-path local loop (det=0.5, no TTA/ranker) — mis-called det AND veto direction; superseded by `blend09_tuning`.
 - Classical ILP pipeline capped ~0.72 LB.
