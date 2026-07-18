@@ -164,6 +164,8 @@ class FrameWindowData:
     coords: list[torch.Tensor]          # W tensors, each (N_i, 3)
     node_counts: list[int]              # GT nodes per frame
     targets: list[torch.Tensor]         # W-1 transition matrices
+    frame_indices: tuple[int, ...] | None = None  # ACTUAL source frame per window slot; None => contiguous t_start..t_start+W-1.
+                                        # Skip windows set (t_start, t_start+gap) so the loader reads the RIGHT image for frame B.
 
 
 @dataclass(frozen=True)
@@ -274,6 +276,7 @@ def get_window_data(
         coords=coords_list,
         node_counts=node_counts,
         targets=targets,
+        frame_indices=tuple(range(t_start, t_start + window_size)),
     )
 
 
@@ -312,6 +315,7 @@ def get_window_data_skip(
     return FrameWindowData(
         t_start=t_start, n_frames=2, pos_feats=pos_feats,
         coords=coords_list, node_counts=node_counts, targets=[target],
+        frame_indices=(t_start, t_start + gap),   # frame B's IMAGE must come from t_start+gap, not t_start+1
     )
 
 
@@ -354,6 +358,7 @@ def pad_window(
         "masks": masks,
         "targets": targets,
         "node_counts": node_counts,
+        "frame_indices": window.frame_indices,   # consumed by __getitem__ to load the right frames; popped before return
     }
 
 
@@ -396,8 +401,11 @@ class FrameWindowDataset(Dataset):
         z = zarr.open_group(str(vm.zarr_path), mode="r")["0"]
         target_shape = list(vm.image_shape[1:])
 
-        # Strided read from zarr — spatial downsample at I/O time: (W, Z_ds, Y_ds, X_ds)
-        raw = z[t_start : t_start + W, ::dz, ::dy, ::dx].astype(np.float32)
+        # Load the ACTUAL source frame per window slot. Contiguous windows -> t_start..t_start+W-1
+        # (identical pixels to the old slice); skip windows -> (t_start, t_start+gap) so frame B's
+        # image matches frame B's GT nodes. Per-frame reads are robust to non-contiguous indices.
+        fidx = meta.get("frame_indices") or tuple(range(t_start, t_start + W))
+        raw = np.stack([z[f, ::dz, ::dy, ::dx] for f in fidx]).astype(np.float32)
         imgs = torch.from_numpy((raw - vm.q_low) / (vm.q_high - vm.q_low + 1e-6)).clamp(0.0)
 
         if list(imgs.shape[1:]) != target_shape:
@@ -413,8 +421,9 @@ class FrameWindowDataset(Dataset):
                 imgs, c, m = aug(imgs, c, m, rng=rng)
             meta = {**meta, "coords": c, "masks": m}
 
+        out = {k: v for k, v in meta.items() if k != "frame_indices"}  # tuple would break default collate
         return {
-            **meta,
+            **out,
             "imgs": imgs.half(),  # (W, *spatial)
             "image_shape": torch.tensor(vm.image_shape, dtype=torch.long),
             "voxel_size": torch.tensor(vm.voxel_size, dtype=torch.float32),

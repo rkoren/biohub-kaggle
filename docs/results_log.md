@@ -12,7 +12,9 @@ is the calibration we're building — fill LB as scores land.
 | + full veto (gap+div) | — | **0.893** | — | −0.007 | veto rejected ~2000/2004 repairs; DON'T |
 | **C1** = div-veto-only + min_track=8 | 0.8631 | **0.893** | +0.0071 | **−0.007** | ⚠ ANTI-transferred; div-veto hurts LB |
 | **C2** = C1 + det=0.95 + gap_close_um=5 | 0.8719 | NOT SUBMITTED | +0.0159 | — | includes div-veto → likely ~0.89; HOLD |
-| **competitor / gap-confirm** (=V6) = gap-confirm min_span7 + gap_thr0.2 + div-veto-off (linefit/bonus inert) | 0.8652 | **0.901** | +0.0091 | **+0.001** | ✅ NEW BEST; first veto-family member to transfer, but +0.0091 train→+0.001 LB = heavily attenuated (precision-only cap). Champion baseline for candidate #2. |
+| **competitor / gap-confirm** (=V6) = gap-confirm min_span7 + gap_thr0.2 + div-veto-off (linefit/bonus inert) | 0.8652 | **0.901** | +0.0091 | **+0.001** | first veto-family member to transfer, but +0.0091 train→+0.001 LB = heavily attenuated (precision-only cap). Champion baseline for candidate #2. |
+| keepfb only (MOTION_RELINK_KEEP_FALLBACK) | rep-CV 0.8681 | **0.900** | — | **+0.000** | recall lever inert standalone (FN↓ ≈ FP↑ wash) |
+| **keepfb + gap-confirm** | rep-CV **0.8717** | **0.902** | — | **+0.002** | ✅ NEW BEST; super-additive — gap-confirm vetoes the FP keepfb introduces. rep-CV ranked this #1 → LB confirmed → **rep-CV validated** |
 
 ### Component isolation (v8, 2026-07-13) — CORRECTS the prior "linefit/bonus" hypothesis
 Ran each competitor knob alone on held-out CV (predict-once sweep, same cached geffs):
@@ -233,6 +235,71 @@ training: distillation** (fine-tune with frame-skip while penalizing divergence 
 add fast-motion capability without unlearning correct edges. gap-confirm still doesn't stack on retrained (0.8512);
 keepfb is the retrained model's best postproc (re-tune postproc per checkpoint). Decision: commit a focused
 distillation-iteration block vs bank v5+keepfb as a candidate submission (CV-beats champion, marginal).
+
+## Retrained LB scores — CV ordering INVERTED (2026-07-17)
+| model | old 44b6-CV (keepfb) | LB |
+|---|---|---|
+| base blend | 0.8561 | 0.900 |
+| gap-confirm champ | 0.8652 | 0.901 |
+| **v5** (prob0.20, 6ep, aggressive) | **0.8758** | **0.889** |
+| **v4** (prob0.15, 4ep, gentle) | **0.8591** | **0.895** |
+Lower-CV v4 BEAT higher-CV v5 on LB (0.895 > 0.889) — full CV→LB inversion. Gentler frame-skip = fewer
+regressions = less damage to the dense 6bba test half. Both retrains still < 0.900 base → frame-skip path (as
+configured) doesn't beat base, and the aggressive direction is WORSE. Confirms: 44b6-only CV was anti-predictive.
+
+## Base-model representative CV (2026-07-17) — keepfb > gap-confirm; divisions now measurable
+Base blend on the new 10-video rep CV: per-embryo eJ 44b6≈0.863, 6bba≈0.851 (6bba only slightly harder for base).
+Postproc ranking FLIPPED vs the old CV: **keepfb 0.8681 > gap-confirm 0.8617 > baseline 0.8577** (old 44b6 CV had
+them tied ~0.865, and we shipped gap-confirm=0.901). rep-CV deltas track LB better (gap-confirm +0.004 rep vs
++0.009 old vs +0.001 LB). 6bba videos HAVE divisions (~10 GT) → 0.1× term finally CV-testable (div_jaccard 0.029).
+⇒ **base + keepfb is a never-submitted config the trustworthy CV ranks ABOVE the 0.901 champion** — prime candidate.
+
+## ❌ v6 retrain (gentle, 6bba-aware, rep-CV-selected) — FAILS gate (2026-07-18)
+Config: frame-skip prob0.10, maxk2, ALL 185 train videos, lr1e-5, 1000 iters (resume 50ep ckpt). rep-CV per-strain:
+
+| postproc | base wts | v6 retrained | Δ |
+|---|---:|---:|---:|
+| baseline | 0.8577 | 0.8579 | +0.0002 |
+| gap-confirm only | 0.8617 | 0.8576 | **−0.0041** |
+| keepfb only | 0.8681 | 0.8694 | +0.0013 |
+| **keepfb+gap-confirm** | **0.8717** | 0.8683 (44b6 .8740/6bba .8667) | **−0.0034** |
+
+- **Gentle fine-tune was a NO-OP on the model** (baseline postproc 0.8577→0.8579 = noise). 1000 iters at prob0.10/maxk2 = only ~15-20% skip windows on a 50ep ckpt; ranker barely moved. **6bba was NOT damaged** — the designed-against failure mode didn't fire; the aug was just too weak to teach anything.
+- **Retrain broke gap-confirm's calibration:** div_J halves (0.0606→0.0270) whenever gap-confirm on; gap-confirm went +0.0036 (base) → −0.0041 (retrained). The fine-tune shifted edge-prob distribution → gap-confirm's fixed 0.2 threshold now vetoes good edges. keepfb (structural union, threshold-free) robust on both.
+- **Recipe now bracketed:** v5 aggressive (LB 0.889, overfit) / v4 medium (LB 0.895) / v6 gentle (no-op). No sweet spot in *uniform* frame-skip fine-tuning net-beats base+keepfb+gap-confirm (0.902). Best retrained config = keepfb-only 0.8694, still −0.0023 under incumbent 0.8717 (~0.901 LB projected). **NOT submitted.**
+- ⇒ Uniform frame-skip fine-tune on this checkpoint is exhausted. Next: either the root fix (velocity/history feature + heavier retrain, not a fine-tune) or a different pipeline lever (detector/postproc from the 0.897 reference, ensemble). See [[project-failure-mode-reframe]].
+
+## ✅ rep-CV VALIDATED on LB — keepfb×gap-confirm 2×2 (2026-07-18)
+Two new submissions completed the lever 2×2 (all confirmed LB, 4 test videos):
+
+| | gap-confirm **off** | gap-confirm **on** |
+|---|---|---|
+| **keepfb off** | base **0.900** | champ **0.901** (+0.001) |
+| **keepfb on**  | **0.900** (+0.000) | **0.902** (+0.002) ⇐ NEW BEST |
+
+- **keepfb alone = 0.900 = base → inert standalone.** Unioned ILP-fallback edges recover FN but drag in ~equal FP → net wash. Pure recall lever, no precision partner.
+- **gap-confirm alone = +0.001.** Precision veto.
+- **Both = +0.002, SUPER-ADDITIVE** (> 0.001+0.000). keepfb only pays off once gap-confirm vetoes the FP its fallback edges introduce → the coupled FP+FN failure-mode signature, confirmed on LB. The levers are genuinely complementary, not two stacked independent gains.
+- **THE VALIDATION:** the representative CV ranked keepfb+gap-confirm #1 (0.8717) — a config the old 44b6-only CV had masked — and it delivered the top LB (0.902). **rep-CV is now trustworthy for model selection.** Future selection can sweep locally on cached geffs (zero GPU) and submit only the rep-CV winner.
+- **Postproc ceiling reconfirmed at ~0.902.** Both levers are precision/recall knobs on the SAME blind ranker; we've now squeezed the complementary pair for +0.002 over base. Knob-twiddling is exhausted — the path to 0.91 is the ranker retrain (fix the `rel`-feature blindness), now selectable against a trusted CV.
+
+## ⚠️ CV METHODOLOGY FIX (2026-07-17) — our held-out CV was blind to half the test
+Root-cause dig after v5 retrain scored LB 0.889 (< 0.900 base) despite higher held-out CV (CV→LB inversion):
+- **Train = 128 `6bba` + 71 `44b6` (64% 6bba). Test = 2 `6bba` + 2 `44b6` (50/50). Our held-out CV = 5× `44b6`,
+  ZERO `6bba`.** We selected EVERY config (gap-confirm champion, the retrain, all of it) on a CV that ignores the
+  majority embryo. `6bba` videos are far denser (209–1950 GT nodes vs `44b6` 155–400) — exactly where frame-skip
+  over-linking hurts most. This is the likely root cause of ALL our CV→LB divergence, and specifically the retrain
+  inversion (frame-skip improved `44b6`/our-CV but almost certainly hurt the dense `6bba` half of the test).
+- **Integrity:** the 4 leaked test clips are `{44b6_0113de3b, 44b6_0b24845f, 6bba_05b6850b, 6bba_05db0fb1}`.
+  `44b6_0b24845f` was IN our CV (mild model-selection contamination). The retrain trained on 3 of the 4 (they're
+  train videos not in the old held-out) — but so did the base pilkwang model (they're in the train set everyone
+  trains on), so retrain-vs-base is still fair; for a clean experiment we now exclude all 4 from training.
+- **FIX (wired into blend09_retrain + blend09_tuning cell 1):** representative held-out CV = 5×`44b6` + 5×`6bba`,
+  size-diverse, none are test clips:
+  `44b6_{1574802b,267148e4,3bb3690f,40c45f5a,341df25f}` + `6bba_{0e7c0d07,afb141ff,edf14583,f17befbc,09961292}`.
+  `TEST_CLIPS` now excluded from training. This is the prerequisite for ANY retrain iteration being steerable.
+- Next: base-model representative CV (running) to establish the `44b6`-vs-`6bba` reference; then a CLEAN retrain
+  on the representative CV is the definitive test of whether frame-skip works when measured properly.
 
 ## Dead ends (don't retry)
 - Raw-path local loop (det=0.5, no TTA/ranker) — mis-called det AND veto direction; superseded by `blend09_tuning`.
