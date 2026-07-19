@@ -269,6 +269,20 @@ Config: frame-skip prob0.10, maxk2, ALL 185 train videos, lr1e-5, 1000 iters (re
 - **Recipe now bracketed:** v5 aggressive (LB 0.889, overfit) / v4 medium (LB 0.895) / v6 gentle (no-op). No sweet spot in *uniform* frame-skip fine-tuning net-beats base+keepfb+gap-confirm (0.902). Best retrained config = keepfb-only 0.8694, still −0.0023 under incumbent 0.8717 (~0.901 LB projected). **NOT submitted.**
 - ⇒ Uniform frame-skip fine-tune on this checkpoint is exhausted. Next: either the root fix (velocity/history feature + heavier retrain, not a fine-tune) or a different pipeline lever (detector/postproc from the 0.897 reference, ensemble). See [[project-failure-mode-reframe]].
 
+## ⚠️ v7 retrain — frame-skip BUG FIXED, but linking STILL doesn't improve (2026-07-18)
+Fixed the image/label bug (skip window now loads t_start+gap image, not t_start+1). Config: prob0.30, maxk2, all-videos, lr1e-5, epochs4, iters1000. rep-CV:
+
+| postproc | base | v6 (buggy, prob0.10) | v7 (FIXED, prob0.30) |
+|---|---:|---:|---:|
+| baseline | 0.8577 | 0.8579 | 0.8572 |
+| keepfb only | 0.8681 | 0.8694 | 0.8668 |
+| keepfb+gap-confirm | **0.8717** | 0.8683 | 0.8672 (44b6 .8658/6bba .8675) |
+
+- **The fix is REAL**: detection loss dropped v6 0.0666 → v7 0.0035 at epoch 0 — the images are now consistent (mismatched skip frames had inflated det loss). Wiring confirmed corrected.
+- **But rep-CV did NOT improve** — v7 keepfb+gap-confirm 0.8672 < base 0.8717 < ... and MORE skip (prob0.30) is slightly WORSE than v6 (prob0.10), the v5-aggressive pattern. FAIL gate (−0.0045).
+- **Edge loss flat 0.0002 was a red-herring signal**: it's a mean over ~all pairs (mostly easy negatives); a few hard skip-positives can't move the aggregate even if the ranker gets them wrong. Only rep-CV is diagnostic, and it says no lift.
+- **Consistent with prior feature-blindness probes** (candidate_probe prob(correct)≈0, appearance=chance, velocity 1/28): the discriminative signal for large-displacement re-ID may not be in the 32-ch appearance+position features → augmentation alone can't teach what the features don't carry. Untried lever: λ-upweight skip-positive edge loss (concentrate gradient) — the one test that separates "drowning" from "features can't support it". See [[project-failure-mode-reframe]].
+
 ## ✅ rep-CV VALIDATED on LB — keepfb×gap-confirm 2×2 (2026-07-18)
 Two new submissions completed the lever 2×2 (all confirmed LB, 4 test videos):
 
